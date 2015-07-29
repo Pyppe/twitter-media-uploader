@@ -23,28 +23,12 @@ object Twitter extends LoggerSupport {
     new NingWSClient(builder.build)
   }
 
-  private def isOkResponse(r: WSResponse): Boolean = r.status == 200 || r.status == 201
-
-  private def resizeImage(f: File): Option[File] = Try {
-    val img = ImageIO.read(f)
-    val resized = Scalr.resize(img, Scalr.Method.SPEED, 1600, 1200)
-    val resizedFile = File.createTempFile(FilenameUtils.getBaseName(f.getName) + "_resized", ".jpg")
-    ImageIO.write(resized, "jpg", resizedFile)
-    Some(resizedFile)
-  } getOrElse {
-    logger.warn(s"Cannot resize $f")
-    None
-  }
-
   private def uploadFile(file: java.io.File)(implicit oauth: WSSignatureCalculator): Future[String] = {
     import java.nio.file.{Files, Paths}
-
-    import org.apache.commons.codec.binary.Base64
-    val data = Base64.encodeBase64String(Files.readAllBytes(Paths.get(file.getAbsolutePath)))
     // {"media_id":527126359358046208,"media_id_string":"527126359358046208","size":6674,"image":{"w":128,"h":121,"image_type":"image\/png"}}
     WS.url("https://upload.twitter.com/1.1/media/upload.json").
       sign(oauth).
-      post(postParams("media" -> data)).
+      post(httpPostParams("media" -> Images.postData(file))).
       filter(isOkResponse).
       map(_.json).
       map(js => (js \ "media_id_string").as[String])
@@ -54,7 +38,7 @@ object Twitter extends LoggerSupport {
     WS.
       url("https://api.twitter.com/1.1/statuses/update.json").
       sign(oauth).
-      post(postParams("status" -> text, "media_ids" -> mediaId)).
+      post(httpPostParams("status" -> text, "media_ids" -> mediaId)).
       filter(isOkResponse).
       map(_.json).
       map { js =>
@@ -62,14 +46,6 @@ object Twitter extends LoggerSupport {
         val user = (js \ "user" \ "screen_name").as[String]
         s"https://twitter.com/$user/status/$id"
       }
-  }
-
-  private def postParams(args: (String, Any)*): Map[String, Seq[String]] = {
-    args.flatMap {
-      case (key, values: TraversableOnce[_]) => Some(key -> values.map(_.toString).toSeq)
-      case (key, value: Option[_])           => value.map(v => key -> Seq(v.toString))
-      case (key, value)                      => Some(key -> Seq(value.toString))
-    }.toMap
   }
 
   def validateSettings(settings: Settings): Unit = {
@@ -92,7 +68,7 @@ object Twitter extends LoggerSupport {
   }
 
   def tweetImage(image: File, settings: Settings) = {
-    val resized = resizeImage(image)
+    val resized = Images.resize(image)
     implicit val oauth: WSSignatureCalculator = OAuthCalculator(settings.consumer, settings.accessToken)
     for {
       mediaId <- uploadFile(resized.getOrElse(image))
