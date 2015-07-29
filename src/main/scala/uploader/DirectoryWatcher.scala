@@ -85,6 +85,14 @@ object DirectoryWatcher extends LoggerSupport {
 
     def start(dir: File, settings: Settings) = synchronized {
       if (scheduledTask == null) {
+        logger.info(
+          s"""
+             |Start watching $dir using settings:
+             | - message = ${settings.message}
+             | - consumer key = ${settings.consumer.key}
+             | - access token = ${settings.accessToken.token}
+           """.stripMargin.trim
+        )
         scheduledTask = schedule(30.seconds) {
           processWatchDirectory(dir, FileBasedState(dir), settings)
         }

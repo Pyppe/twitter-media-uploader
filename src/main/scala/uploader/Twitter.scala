@@ -11,14 +11,12 @@ import play.api.libs.oauth.OAuthCalculator
 import play.api.libs.ws.{WSSignatureCalculator, WSResponse, WS}
 import play.api.libs.ws.ning.{NingWSClient, NingAsyncHttpClientConfigBuilder}
 
-import scala.concurrent.Future
+import scala.concurrent.{Await, Future}
+import scala.concurrent.duration._
 import scala.util.Try
 
 object Twitter extends LoggerSupport {
   import scala.concurrent.ExecutionContext.Implicits.global
-
-  private val UploadUrl = "https://upload.twitter.com/1.1/media/upload.json"
-  private val StatusUrl = "https://api.twitter.com/1.1/statuses/update.json"
 
   private val WS = {
     val builder = new AsyncHttpClientConfig.Builder(new NingAsyncHttpClientConfigBuilder().build)
@@ -44,7 +42,7 @@ object Twitter extends LoggerSupport {
     import org.apache.commons.codec.binary.Base64
     val data = Base64.encodeBase64String(Files.readAllBytes(Paths.get(file.getAbsolutePath)))
     // {"media_id":527126359358046208,"media_id_string":"527126359358046208","size":6674,"image":{"w":128,"h":121,"image_type":"image\/png"}}
-    WS.url(UploadUrl).
+    WS.url("https://upload.twitter.com/1.1/media/upload.json").
       sign(oauth).
       post(postParams("media" -> data)).
       filter(isOkResponse).
@@ -54,7 +52,7 @@ object Twitter extends LoggerSupport {
 
   private def postStatus(text: String, mediaId: String)(implicit oauth: WSSignatureCalculator): Future[String] = {
     WS.
-      url(StatusUrl).
+      url("https://api.twitter.com/1.1/statuses/update.json").
       sign(oauth).
       post(postParams("status" -> text, "media_ids" -> mediaId)).
       filter(isOkResponse).
@@ -72,6 +70,25 @@ object Twitter extends LoggerSupport {
       case (key, value: Option[_])           => value.map(v => key -> Seq(v.toString))
       case (key, value)                      => Some(key -> Seq(value.toString))
     }.toMap
+  }
+
+  def validateSettings(settings: Settings): Unit = {
+    val future =
+      WS.url("https://api.twitter.com/1.1/help/configuration.json").
+        sign(OAuthCalculator(settings.consumer, settings.accessToken)).
+        get.filter(isOkResponse).
+        map(_.json).
+        map(js => (js \ "characters_reserved_per_media").as[Int]).
+        map { charsPerMedia =>
+          val maxSize = 140 - charsPerMedia - 1
+          require(settings.message.length < maxSize, s"message <${settings.message}> too long [max $maxSize characters]")
+        }
+
+    future.onFailure {
+      case _ => WS.close()
+    }
+
+    Await.result(future, 30.seconds)
   }
 
   def tweetImage(image: File, settings: Settings) = {

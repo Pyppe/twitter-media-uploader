@@ -17,7 +17,7 @@ object Main {
   val argumentParser = new scopt.OptionParser[Arguments](AppName) {
     head(AppName, "1.0")
 
-    opt[File]('d', "directory") required() action { (dir, p) =>
+    opt[File]('d', "directory") action { (dir, p) =>
       p.copy(dir = Some(dir.getCanonicalFile))
     } validate { file =>
       if (file.isDirectory)
@@ -29,8 +29,15 @@ object Main {
     help("help") text "Prints this usage text"
   }
 
-  private def parseSettings() = {
-    val c = ConfigFactory.parseResources("settings.conf")
+  private def parseSettings(dir: File) = {
+    val c = {
+      val default = ConfigFactory.parseResources("settings.conf")
+      val userFile = new File(dir, "settings.conf")
+      if (userFile.isFile)
+        ConfigFactory.parseFile(userFile).withFallback(default)
+      else
+        default
+    }
     val consumer = ConsumerKey(
       c.getString("twitter.consumer.key"),
       c.getString("twitter.consumer.secret")
@@ -43,13 +50,26 @@ object Main {
   }
 
   def main(args: Array[String]) {
-    val settings = parseSettings()
     val arguments = argumentParser.parse(args, Arguments()) match {
       case Some(arguments) => arguments
       case None            => sys.exit(1)
     }
+    val dir = arguments.dir.getOrElse {
+      val currentDir = new File(".").getCanonicalFile
+      require(currentDir.isDirectory, s"$currentDir is not a directory")
+      currentDir
+    }
 
-    DirectoryWatcher.Scheduler.start(arguments.dir.get, settings)
+    val settings = parseSettings(dir)
+    try {
+      Twitter.validateSettings(settings)
+    } catch {
+      case err: Throwable =>
+        System.err.println(s"Error validating settings: ${err.getMessage}")
+        sys.exit(0)
+    }
+
+    DirectoryWatcher.Scheduler.start(dir, settings)
 
     while(true) {
       Thread.sleep(30.seconds.toMillis)
