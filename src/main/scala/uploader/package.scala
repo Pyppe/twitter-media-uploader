@@ -16,7 +16,7 @@ package object uploader {
     })
 
   def schedule(interval: FiniteDuration,
-               delay: FiniteDuration = 5.seconds,
+               delay: FiniteDuration = 15.seconds,
                executor: ScheduledExecutorService = singleThreadExecutor)
               (block: => Unit)(implicit logger: Logger): ScheduledFuture[_] = {
     import java.util.concurrent.TimeUnit.MILLISECONDS
@@ -37,6 +37,11 @@ package object uploader {
       executor.scheduleAtFixedRate(task, delay.toMillis, interval.toMillis, MILLISECONDS)
     else
       executor.schedule(task, delay.toMillis, MILLISECONDS)
+  }
+
+  def using[A, B <: {def close(): Unit}] (closeable: B) (f: B => A): A = {
+    import scala.language.reflectiveCalls
+    try { f(closeable) } finally { closeable.close() }
   }
 
 }
