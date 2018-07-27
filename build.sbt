@@ -37,6 +37,7 @@ libraryDependencies ++= Seq(
 resolvers += "Typesafe Repository" at "http://repo.typesafe.com/typesafe/releases/"
 
 assemblyJarName in assembly := "twitter-media-uploader.jar"
+mainClass in (Compile, run) := Some("uploader.Main")
 
 assemblyMergeStrategy in assembly := {
   case PathList("com", "fasterxml", "jackson", "databind", xs @ _*) => MergeStrategy.first

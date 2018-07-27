@@ -24,7 +24,7 @@ object Main {
         success
       else
         failure(s"$file is not a directory")
-    } text "Clear cache"
+    } text "Watch directory"
 
     help("help") text "Prints this usage text"
   }
